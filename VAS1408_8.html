@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="UTF-8">
+<title>VAS Pain Scale (Drift Corrected)</title>
+
+<style>
+
+body{
+    margin:0;
+    overflow:hidden;
+    cursor:none;
+    font-family:sans-serif;
+    background:white;
+}
+
+#vas-container{
+    position:absolute;
+    left:10%;
+    right:10%;
+    top:50%;
+    height:120px;
+}
+
+#vas-line{
+    position:absolute;
+    width:100%;
+    height:4px;
+    background:#aaa;
+    top:40px;
+}
+
+#vas-marker{
+    position:absolute;
+    width:24px;
+    height:24px;
+    background:red;
+    border-radius:50%;
+    top:32px;
+    transform:translate(-50%,-50%);
+    left:0px;
+}
+
+.label{
+    position:absolute;
+    top:65px;
+    font-size:18px;
+    font-weight:600;
+    color:#333;
+}
+
+#left-label{ left:0; }
+#right-label{ right:0; text-align:right; }
+
+</style>
+</head>
+
+<body>
+
+<div id="vas-container">
+    <div id="vas-line"></div>
+    <div id="vas-marker"></div>
+
+    <div id="left-label" class="label">Ingen smerte</div>
+    <div id="right-label" class="label">Ekstrem smerte</div>
+</div>
+
+<script>
+
+//==================================================
+// SETTINGS
+//==================================================
+
+const PROGRAM_NAME = "T48";
+const RECORDING_DURATION = 390500; // ms
+const SAMPLE_INTERVAL = 50;
+
+//==================================================
+
+const container = document.getElementById("vas-container");
+const marker = document.getElementById("vas-marker");
+
+// state
+let started = false;
+let finished = false;
+
+let startTime = 0;
+
+let currentX = 0;
+let currentVAS = 0;
+
+// data
+let data = [];
+let events = [];
+
+// sample index (NOT time-based loop)
+let sampleIndex = 0;
+
+//==================================================
+// Mouse tracking (only updates state)
+//==================================================
+
+document.addEventListener("mousemove", (e) => {
+
+    if (!started || finished) return;
+
+    const rect = container.getBoundingClientRect();
+
+    let x = e.clientX - rect.left;
+    x = Math.max(0, Math.min(rect.width, x));
+
+    currentX = x;
+
+    marker.style.left = currentX + "px";
+
+    currentVAS = Math.round((currentX / rect.width) * 100);
+});
+
+//==================================================
+// START
+//==================================================
+
+function startVAS(){
+
+    if(started) return;
+
+    started = true;
+    startTime = performance.now();
+
+    events.push({
+        time: 0,
+        event: "Recording Started"
+    });
+
+    sampleIndex = 0;
+
+    sampleLoop();
+
+}
+
+//==================================================
+// DRIFT-CORRECTED SAMPLING LOOP
+//==================================================
+
+function sampleLoop(){
+
+    if(finished) return;
+
+    const now = performance.now();
+    const elapsed = now - startTime;
+
+    const expectedTime = sampleIndex * SAMPLE_INTERVAL;
+
+    // only record when we reach the expected time
+    if (elapsed >= expectedTime) {
+
+        sampleIndex++;
+
+        data.push({
+            sample: sampleIndex,
+            time: expectedTime,
+            vas: currentVAS
+        });
+    }
+
+    // stop condition (based on true duration)
+    if (elapsed >= RECORDING_DURATION) {
+
+        stopVAS();
+        return;
+    }
+
+    requestAnimationFrame(sampleLoop);
+
+}
+
+//==================================================
+// STOP
+//==================================================
+
+function stopVAS(){
+
+    if(finished) return;
+
+    finished = true;
+
+    const endTime = performance.now() - startTime;
+
+    events.push({
+        time: Math.round(endTime),
+        event: "Recording Finished"
+    });
+
+    downloadCSV();
+
+    setTimeout(() => {
+        document.body.innerHTML =
+        "<h1 style='text-align:center;font-family:sans-serif;'>Finished</h1>";
+    }, 3000);
+
+}
+//==================================================
+// CSV EXPORT
+//==================================================
+
+function downloadCSV(){
+
+    const now = new Date();
+
+    const expectedSamples = Math.floor(RECORDING_DURATION / SAMPLE_INTERVAL);
+    const actualSamples = data.length;
+
+    let filename =
+        "OA_" +
+        PROGRAM_NAME +
+        "_" +
+        now.toISOString().replace(/:/g,"-") +
+        ".csv";
+
+    let csv = "";
+
+    // metadata
+    csv += "Experiment,Offset Analgesia\n";
+    csv += "Program," + PROGRAM_NAME + "\n";
+    csv += "Duration_ms," + RECORDING_DURATION + "\n";
+    csv += "SamplingInterval_ms," + SAMPLE_INTERVAL + "\n";
+    csv += "ExpectedSamples," + expectedSamples + "\n";
+    csv += "ActualSamples," + actualSamples + "\n";
+    csv += "StartTime," + now.toISOString() + "\n";
+
+    csv += "\nEVENTS\n";
+    csv += "Time_ms,Event\n";
+
+    events.forEach(e => {
+        csv += e.time + "," + e.event + "\n";
+    });
+
+    csv += "\nDATA\n";
+    csv += "Sample,TrialTime_ms,VAS\n";
+
+    data.forEach(d => {
+        csv += `${d.sample},${d.time},${d.vas}\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+
+    document.body.appendChild(a);
+
+setTimeout(() => {
+    a.click();
+}, 100);
+
+setTimeout(() => {
+document.body.removeChild(a);
+URL.revokeObjectURL(url);
+}, 3000);
+
+}
+//==================================================
+// AUTO START (iMotions trigger timing)
+//==================================================
+
+window.addEventListener("load", () => {
+    startVAS();
+});
+
+</script>
+
+</body>
+</html>
