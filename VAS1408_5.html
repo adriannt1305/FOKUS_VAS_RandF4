@@ -69,6 +69,19 @@ body{
 <script>
 
 //==================================================
+// DIAGNOSTIC TIMING
+//==================================================
+
+// Absolute browser timestamp as soon as this script starts
+const scriptLoadPerformance = performance.now();
+
+// These will be filled in as events occur
+let windowLoadPerformance = null;
+let recordingStartPerformance = null;
+let firstSamplePerformance = null;
+let recordingEndPerformance = null;
+
+//==================================================
 // SETTINGS
 //==================================================
 
@@ -96,6 +109,16 @@ let events = [];
 
 // sample index (NOT time-based loop)
 let sampleIndex = 0;
+
+//==================================================
+// Diagnostic: JavaScript started
+//==================================================
+
+events.push({
+    time: 0,
+    absoluteTime: scriptLoadPerformance,
+    event: "Page Script Loaded"
+});
 
 //==================================================
 // Mouse tracking (only updates state)
@@ -126,10 +149,13 @@ function startVAS(){
     if(started) return;
 
     started = true;
-    startTime = performance.now();
+
+    recordingStartPerformance = performance.now();
+    startTime = recordingStartPerformance;
 
     events.push({
         time: 0,
+        absoluteTime: recordingStartPerformance,
         event: "Recording Started"
     });
 
@@ -156,6 +182,18 @@ function sampleLoop(){
     if (elapsed >= expectedTime) {
 
         sampleIndex++;
+
+        // Diagnostic: record when the first sample actually occurs
+        if (firstSamplePerformance === null) {
+
+            firstSamplePerformance = now;
+
+            events.push({
+                time: Math.round(elapsed),
+                absoluteTime: firstSamplePerformance,
+                event: "First Sample"
+            });
+        }
 
         data.push({
             sample: sampleIndex,
@@ -185,10 +223,13 @@ function stopVAS(){
 
     finished = true;
 
-    const endTime = performance.now() - startTime;
+    recordingEndPerformance = performance.now();
+
+    const endTime = recordingEndPerformance - startTime;
 
     events.push({
         time: Math.round(endTime),
+        absoluteTime: recordingEndPerformance,
         event: "Recording Finished"
     });
 
@@ -200,6 +241,7 @@ function stopVAS(){
     }, 3000);
 
 }
+
 //==================================================
 // CSV EXPORT
 //==================================================
@@ -220,7 +262,10 @@ function downloadCSV(){
 
     let csv = "";
 
-    // metadata
+    //==================================================
+    // METADATA
+    //==================================================
+
     csv += "Experiment,Offset Analgesia\n";
     csv += "Program," + PROGRAM_NAME + "\n";
     csv += "Duration_ms," + RECORDING_DURATION + "\n";
@@ -229,12 +274,66 @@ function downloadCSV(){
     csv += "ActualSamples," + actualSamples + "\n";
     csv += "StartTime," + now.toISOString() + "\n";
 
+    //==================================================
+    // DIAGNOSTIC TIMING
+    //==================================================
+
+    csv += "\nDIAGNOSTIC TIMING\n";
+
+    csv += "Metric,Value_ms\n";
+
+    if (windowLoadPerformance !== null) {
+        csv += "Script_Load_to_Window_Load," +
+               (windowLoadPerformance - scriptLoadPerformance).toFixed(3) +
+               "\n";
+    }
+
+    if (recordingStartPerformance !== null) {
+        csv += "Script_Load_to_Recording_Start," +
+               (recordingStartPerformance - scriptLoadPerformance).toFixed(3) +
+               "\n";
+    }
+
+    if (windowLoadPerformance !== null &&
+        recordingStartPerformance !== null) {
+
+        csv += "Window_Load_to_Recording_Start," +
+               (recordingStartPerformance - windowLoadPerformance).toFixed(3) +
+               "\n";
+    }
+
+    if (firstSamplePerformance !== null &&
+        recordingStartPerformance !== null) {
+
+        csv += "Recording_Start_to_First_Sample," +
+               (firstSamplePerformance - recordingStartPerformance).toFixed(3) +
+               "\n";
+    }
+
+    if (recordingEndPerformance !== null &&
+        recordingStartPerformance !== null) {
+
+        csv += "Recording_Duration_Actual," +
+               (recordingEndPerformance - recordingStartPerformance).toFixed(3) +
+               "\n";
+    }
+
+    //==================================================
+    // EVENTS
+    //==================================================
+
     csv += "\nEVENTS\n";
-    csv += "Time_ms,Event\n";
+    csv += "Time_ms,AbsolutePerformance_ms,Event\n";
 
     events.forEach(e => {
-        csv += e.time + "," + e.event + "\n";
+        csv += e.time + "," +
+               e.absoluteTime.toFixed(3) + "," +
+               e.event + "\n";
     });
+
+    //==================================================
+    // DATA
+    //==================================================
 
     csv += "\nDATA\n";
     csv += "Sample,TrialTime_ms,VAS\n";
@@ -252,22 +351,34 @@ function downloadCSV(){
 
     document.body.appendChild(a);
 
-setTimeout(() => {
-    a.click();
-}, 100);
+    setTimeout(() => {
+        a.click();
+    }, 100);
 
-setTimeout(() => {
-document.body.removeChild(a);
-URL.revokeObjectURL(url);
-}, 3000);
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 3000);
 
 }
+
 //==================================================
 // AUTO START (iMotions trigger timing)
 //==================================================
 
 window.addEventListener("load", () => {
+
+    // Record exactly when the browser's load event occurs
+    windowLoadPerformance = performance.now();
+
+    events.push({
+        time: Math.round(windowLoadPerformance - scriptLoadPerformance),
+        absoluteTime: windowLoadPerformance,
+        event: "Window Load"
+    });
+
     startVAS();
+
 });
 
 </script>
